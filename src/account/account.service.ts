@@ -10,6 +10,8 @@ import { LoginAccountDto } from "./dto/login-account.dto";
 import { UserDto } from "./dto/user.dto";
 import { TokenService } from "../token/token.service";
 import { ProfileDto } from "./dto/profile.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
 
 @Injectable()
 export class AccountService {
@@ -23,20 +25,19 @@ export class AccountService {
       throw new HttpException('User with such mail already exists', HttpStatus.BAD_REQUEST)
     }
     const hashPassword = bcrypt.hashSync(dto.password, 3)
-    const activationLink = `http://localhost:5000/account/activate/${uuid.v4()}`
+    const activationLink = uuid.v4();
     const newUser = await this.userModel.create({...dto, password: hashPassword, isActivated: false, activationLink})
     await this.emailService.sendActivation(dto.email, activationLink)
     return newUser
   }
   async activate(link) {
-    const activationLink = `http://localhost:5000/account/activate/${link}`
-    const findUser = await this.userModel.findOne({activationLink})
+    const findUser = await this.userModel.findOne({link})
     if(!findUser) {
       throw new HttpException('User Not Found', HttpStatus.UNAUTHORIZED)
     }
     findUser.isActivated = true
     await findUser.save()
-    return activationLink
+    return link
   }
   async login(dto: LoginAccountDto) {
     if(dto.password !== dto.password2) {
@@ -46,7 +47,7 @@ export class AccountService {
     if(!findUser) {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED)
     }
-    const isPassEquals = bcrypt.compare(findUser.password, dto.password)
+    const isPassEquals = bcrypt.compareSync(dto.password, findUser.password)
     if(!isPassEquals) {
       throw new HttpException('Invalid Password', HttpStatus.BAD_REQUEST)
     }
@@ -68,6 +69,28 @@ export class AccountService {
     }
     const profileDto = new ProfileDto(findUser)
     return profileDto
+  }
+  async resetPassword(dto: ResetPasswordDto) {
+    const {email} = dto
+    const findUser = await this.userModel.findOne({email})
+    if(!findUser) {
+      throw new HttpException('Invalid Email', HttpStatus.BAD_REQUEST)
+    }
+    const link = `http://localhost:5000/account/reset-password/${findUser.activationLink}`
+    await this.emailService.resetPassword(email, link)
+  }
+  async changePassword(dto: ChangePasswordDto, link) {
+    if(dto.password !== dto.password2) {
+      throw new HttpException('Password mismatch', HttpStatus.BAD_REQUEST)
+    }
+    const findUser = await this.userModel.findOne({activationLink: link})
+    if(!findUser) {
+      throw new HttpException('Invalid link', HttpStatus.BAD_REQUEST)
+    }
+    const hashPassword = bcrypt.hashSync(dto.password, 3)
+    findUser.password = hashPassword
+    await findUser.save()
+    return new HttpException('Password successfully changed', HttpStatus.OK)
   }
   async logout() {
 
